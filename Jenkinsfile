@@ -8,10 +8,12 @@ pipeline {
     }
 
             stage('Checkout') {
-            steps {
-                git url: 'https://github.com/barbur2/calculator-app-CICD-test.git', branch: "${env.BRANCH_NAME}"
-            }
-        }
+    steps {
+        git branch: "${env.BRANCH_NAME}",
+            url: 'https://github.com/barbur2/calculator-app-CICD-test.git',
+            credentialsId: 'GitHub-user'
+    }
+}
 
 
         stage('Build Docker Image') {
