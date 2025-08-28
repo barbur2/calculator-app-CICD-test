@@ -2,19 +2,19 @@ pipeline {
     agent any
 
     environment {
-        AWS_DEFAULT_REGION = "us-east-1"              
-        AWS_ACCOUNT_ID    = "992382545251"            
-        ECR_REPO          = "bar-calculator-app"      
+        AWS_DEFAULT_REGION = "us-east-1"
+        AWS_ACCOUNT_ID    = "992382545251"
+        ECR_REPO          = "bar-calculator-app"
     }
 
-            stage('Checkout') {
-    steps {
-        git branch: "${env.BRANCH_NAME}",
-            url: 'https://github.com/barbur2/calculator-app-CICD-test.git',
-            credentialsId: 'GitHub-user'
-    }
-}
-
+    stages {
+        stage('Checkout') {
+            steps {
+                git branch: "${env.BRANCH_NAME}",
+                    url: 'https://github.com/barbur2/calculator-app-CICD-test.git',
+                    credentialsId: 'GitHub-user'
+            }
+        }
 
         stage('Build Docker Image') {
             agent {
