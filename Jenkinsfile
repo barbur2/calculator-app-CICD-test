@@ -111,7 +111,7 @@ pipeline {
                 script {
                     sh """
                       for i in {1..5}; do
-                        if curl -s http://${PROD_HOST#*@}/health; then
+                        if curl -s http://${PROD_HOST.split('@')[-1]}/health; then
                           echo "✅ App is healthy"
                           exit 0
                         fi
