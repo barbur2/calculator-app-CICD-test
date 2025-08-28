@@ -81,25 +81,24 @@ pipeline {
         }
 
         stage('Health Check') {
-            when {
-                branch 'main'
-            }
-            steps {
-                script {
-                    sh """
-                      for i in {1..5}; do
-                        if curl -s http://${PROD_HOST#*@}/health; then
-                          echo "✅ App is healthy"
-                          exit 0
-                        fi
-                        echo "Health check failed, retrying..."
-                        sleep 5
-                      done
-                      echo "❌ App failed health check"
-                      exit 1
-                    """
-                }
-            }
+    when {
+        branch 'main'
+    }
+    steps {
+        script {
+            sh """
+              HOST=\$(echo "${PROD_HOST}" | cut -d@ -f2)
+              for i in {1..5}; do
+                if curl -s http://\$HOST/health; then
+                  echo "✅ App is healthy"
+                  exit 0
+                fi
+                echo "❌ Health check failed, retrying..."
+                sleep 5
+              done
+              echo "App failed health check"
+              exit 1
+            """
         }
     }
 }
