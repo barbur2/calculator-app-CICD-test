@@ -7,12 +7,12 @@ pipeline {
         ECR_REPO          = "bar-calculator-app"      
     }
 
-    stages {
-        stage('Checkout') {
+            stage('Checkout') {
             steps {
-                checkout scm
+                git url: 'https://github.com/barbur2/calculator-app-CICD-test.git', branch: "${env.BRANCH_NAME}"
             }
         }
+
 
         stage('Build Docker Image') {
             agent {
