@@ -22,12 +22,24 @@ pipeline {
         }
 
         stage('Build Image') {
-            agent {
-                docker {
-                    image 'jenkins-docker-aws'
-                    args '-v /var/run/docker.sock:/var/run/docker.sock'
-                }
-            }
+    steps {
+        script {
+            sh 'pwd'
+            sh 'ls -la'
+            sh 'cat Dockerfile || echo "❌ No Dockerfile found!"'
+
+            def IMAGE_TAG = "latest"
+            def IMAGE_URI = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}"
+
+            sh """
+              aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | \
+              docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com
+              docker build -t ${IMAGE_URI} .
+            """
+        }
+    }
+}
+
             steps {
                 script {
                     if (env.CHANGE_ID) {
