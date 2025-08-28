@@ -24,12 +24,15 @@ pipeline {
         stage('Build Image') {
             steps {
                 script {
-                    sh 'pwd'
-                    sh 'ls -la'
-                    sh 'cat Dockerfile || echo "❌ No Dockerfile found!"'
-
-                    def IMAGE_TAG = "latest"
-                    def IMAGE_URI = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}"
+                    // קובעים תגית נכונה לפי PR / main / branch
+                    if (env.CHANGE_ID) {
+                        IMAGE_TAG = "pr-${env.CHANGE_ID}-${env.BUILD_NUMBER}"
+                    } else if (env.BRANCH_NAME == 'main') {
+                        IMAGE_TAG = "latest"
+                    } else {
+                        IMAGE_TAG = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
+                    }
+                    IMAGE_URI = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}"
 
                     sh """
                       aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | \
@@ -42,19 +45,19 @@ pipeline {
 
         stage('Run Tests') {
             steps {
-                sh "docker run --rm ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO}:latest pytest || echo '⚠️ Tests failed'"
+                sh "docker run --rm ${IMAGE_URI} pytest || echo '⚠️ Tests failed'"
             }
         }
 
         stage('Push to ECR') {
             when {
-                branch 'main'
+                anyOf {
+                    expression { env.CHANGE_ID != null }  // PR builds
+                    branch 'main'                        // main branch
+                }
             }
             steps {
                 script {
-                    def IMAGE_TAG = "latest"
-                    def IMAGE_URI = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}"
-
                     sh "docker push ${IMAGE_URI}"
                 }
             }
@@ -69,9 +72,9 @@ pipeline {
                     sh """
                       ssh -o StrictHostKeyChecking=no ${PROD_HOST} \\
                         "aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com && \\
-                         docker pull ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO}:latest && \\
+                         docker pull ${IMAGE_URI} && \\
                          docker rm -f calculator || true && \\
-                         docker run -d --name calculator -p 80:5000 ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO}:latest"
+                         docker run -d --name calculator -p 80:5000 ${IMAGE_URI}"
                     """
                 }
             }
@@ -84,9 +87,8 @@ pipeline {
             steps {
                 script {
                     sh """
-                      HOST_IP=\$(echo ${PROD_HOST} | cut -d'@' -f2)
                       for i in {1..5}; do
-                        if curl -s http://\$HOST_IP/health; then
+                        if curl -s http://${PROD_HOST#*@}/health; then
                           echo "✅ App is healthy"
                           exit 0
                         fi
