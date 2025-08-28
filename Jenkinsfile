@@ -32,13 +32,13 @@ pipeline {
                     } else {
                         IMAGE_TAG = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
                     }
-                    IMAGE_URI = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}"
+                    env.IMAGE_URI = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}"
 
                     sh """
                       aws ecr get-login-password --region ${AWS_DEFAULT_REGION} \
                         | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com
 
-                      docker build -t ${IMAGE_URI} .
+                      docker build -t ${env.IMAGE_URI} .
                     """
                 }
             }
@@ -52,8 +52,9 @@ pipeline {
                 }
             }
             steps {
-                // כאן התיקון: מריצים עם PYTHONPATH=/app
-                sh "docker run --rm -e PYTHONPATH=/app ${IMAGE_URI} pytest"
+                script {
+                    sh "docker run --rm ${env.IMAGE_URI} pytest || (echo '⚠️ Tests failed' && exit 1)"
+                }
             }
         }
 
@@ -65,7 +66,7 @@ pipeline {
                 }
             }
             steps {
-                sh "docker push ${IMAGE_URI}"
+                sh "docker push ${env.IMAGE_URI}"
             }
         }
 
@@ -78,9 +79,9 @@ pipeline {
                     sh """
                       ssh -o StrictHostKeyChecking=no ${PROD_HOST} \\
                         "aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com && \\
-                         docker pull ${IMAGE_URI} && \\
+                         docker pull ${env.IMAGE_URI} && \\
                          docker rm -f calculator || true && \\
-                         docker run -d --name calculator -p 80:5000 ${IMAGE_URI}"
+                         docker run -d --name calculator -p 80:5000 ${env.IMAGE_URI}"
                     """
                 }
             }
@@ -92,18 +93,18 @@ pipeline {
             }
             steps {
                 script {
-                    sh """
+                    sh '''
                       for i in {1..5}; do
                         if curl -s http://${PROD_HOST#*@}/health; then
-                          echo "App is healthy"
+                          echo "✅ App is healthy"
                           exit 0
                         fi
                         echo "Health check failed, retrying..."
                         sleep 5
                       done
-                      echo "App failed health check"
+                      echo "❌ App failed health check"
                       exit 1
-                    """
+                    '''
                 }
             }
         }
