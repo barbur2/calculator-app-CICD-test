@@ -9,12 +9,12 @@ pipeline {
 
     stages {
         stage('Checkout') {
-            steps {
-                git branch: "${env.BRANCH_NAME}",
-                    url: 'https://github.com/barbur2/calculator-app-CICD-test.git',
-                    credentialsId: 'GitHub-user'
-            }
-        }
+    steps {
+        git branch: "${env.BRANCH_NAME}",
+            url: 'https://github.com/barbur2/calculator-app-CICD-test.git',
+            credentialsId: 'GitHub-user'
+    }
+}
 
         stage('Build Docker Image') {
             agent {
