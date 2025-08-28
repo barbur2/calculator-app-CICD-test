@@ -5,6 +5,11 @@ pipeline {
         AWS_DEFAULT_REGION = "us-east-1"
         AWS_ACCOUNT_ID     = "992382545251"
         ECR_REPO           = "bar-calculator-app"
+        PROD_HOST          = "ec2-user@<PROD-EC2-IP>"   // תעדכני את ה־IP
+    }
+
+    options {
+        skipDefaultCheckout(true)
     }
 
     stages {
@@ -16,7 +21,7 @@ pipeline {
             }
         }
 
-        stage('Build Docker Image') {
+        stage('Build Image') {
             agent {
                 docker {
                     image 'jenkins-docker-aws'
@@ -25,15 +30,19 @@ pipeline {
             }
             steps {
                 script {
-                    def IMAGE_TAG = "build-${env.BUILD_NUMBER}"
-                    def IMAGE_URI = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}"
+                    if (env.CHANGE_ID) {
+                        IMAGE_TAG = "pr-${env.CHANGE_ID}-${env.BUILD_NUMBER}"
+                    } else if (env.BRANCH_NAME == 'main') {
+                        IMAGE_TAG = "latest"
+                    } else {
+                        IMAGE_TAG = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
+                    }
+                    IMAGE_URI = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}"
 
                     sh """
-                      echo "Logging in to AWS ECR..."
-                      aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | \
-                        docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com
+                      aws ecr get-login-password --region ${AWS_DEFAULT_REGION} \
+                        | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com
 
-                      echo "Building Docker image: ${IMAGE_URI}"
                       docker build -t ${IMAGE_URI} .
                     """
                 }
@@ -48,14 +57,17 @@ pipeline {
                 }
             }
             steps {
-                sh """
-                  echo "Running tests..."
-                  docker run --rm ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO}:build-${env.BUILD_NUMBER} pytest || true
-                """
+                sh "docker run --rm ${IMAGE_URI} pytest"
             }
         }
 
         stage('Push to ECR') {
+            when {
+                anyOf {
+                    expression { env.CHANGE_ID != null }  // PR builds
+                    branch 'main'                        // main branch
+                }
+            }
             agent {
                 docker {
                     image 'jenkins-docker-aws'
@@ -63,13 +75,44 @@ pipeline {
                 }
             }
             steps {
-                script {
-                    def IMAGE_TAG = "build-${env.BUILD_NUMBER}"
-                    def IMAGE_URI = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}"
+                sh "docker push ${IMAGE_URI}"
+            }
+        }
 
+        stage('Deploy to Prod') {
+            when {
+                branch 'main'
+            }
+            steps {
+                script {
                     sh """
-                      echo "Pushing image to ECR..."
-                      docker push ${IMAGE_URI}
+                      ssh -o StrictHostKeyChecking=no ${PROD_HOST} \\
+                        "docker login -u AWS -p \$(aws ecr get-login-password --region ${AWS_DEFAULT_REGION}) ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com && \\
+                         docker pull ${IMAGE_URI} && \\
+                         docker rm -f calculator || true && \\
+                         docker run -d --name calculator -p 80:5000 ${IMAGE_URI}"
+                    """
+                }
+            }
+        }
+
+        stage('Health Check') {
+            when {
+                branch 'main'
+            }
+            steps {
+                script {
+                    sh """
+                      for i in {1..5}; do
+                        if curl -s http://<PROD-EC2-IP>/health; then
+                          echo "App is healthy"
+                          exit 0
+                        fi
+                        echo "Health check failed, retrying..."
+                        sleep 5
+                      done
+                      echo "App failed health check"
+                      exit 1
                     """
                 }
             }
