@@ -24,15 +24,12 @@ pipeline {
         stage('Build Image') {
             steps {
                 script {
-                    // קובעים תגית נכונה לפי PR / main / branch
-                    if (env.CHANGE_ID) {
-                        IMAGE_TAG = "pr-${env.CHANGE_ID}-${env.BUILD_NUMBER}"
-                    } else if (env.BRANCH_NAME == 'main') {
-                        IMAGE_TAG = "latest"
-                    } else {
-                        IMAGE_TAG = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
-                    }
-                    IMAGE_URI = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}"
+                    sh 'pwd'
+                    sh 'ls -la'
+                    sh 'cat Dockerfile || echo "❌ No Dockerfile found!"'
+
+                    def IMAGE_TAG = "latest"
+                    def IMAGE_URI = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}"
 
                     sh """
                       aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | \
@@ -45,21 +42,19 @@ pipeline {
 
         stage('Run Tests') {
             steps {
-                sh "docker run --rm ${IMAGE_URI} pytest || echo '⚠️ Tests failed'"
+                sh "docker run --rm ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO}:latest pytest || echo '⚠️ Tests failed'"
             }
         }
 
         stage('Push to ECR') {
             when {
                 anyOf {
-                    expression { env.CHANGE_ID != null }  // PR builds
-                    branch 'main'                        // main branch
+                    expression { env.CHANGE_ID != null } // PR builds
+                    branch 'main'
                 }
             }
             steps {
-                script {
-                    sh "docker push ${IMAGE_URI}"
-                }
+                sh "docker push ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO}:latest"
             }
         }
 
@@ -72,33 +67,35 @@ pipeline {
                     sh """
                       ssh -o StrictHostKeyChecking=no ${PROD_HOST} \\
                         "aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com && \\
-                         docker pull ${IMAGE_URI} && \\
+                         docker pull ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO}:latest && \\
                          docker rm -f calculator || true && \\
-                         docker run -d --name calculator -p 80:5000 ${IMAGE_URI}"
+                         docker run -d --name calculator -p 80:5000 ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO}:latest"
                     """
                 }
             }
         }
 
         stage('Health Check') {
-    when {
-        branch 'main'
-    }
-    steps {
-        script {
-            sh """
-              HOST=\$(echo "${PROD_HOST}" | cut -d@ -f2)
-              for i in {1..5}; do
-                if curl -s http://\$HOST/health; then
-                  echo "✅ App is healthy"
-                  exit 0
-                fi
-                echo "❌ Health check failed, retrying..."
-                sleep 5
-              done
-              echo "App failed health check"
-              exit 1
-            """
+            when {
+                branch 'main'
+            }
+            steps {
+                script {
+                    sh """
+                      HOST=\$(echo "${PROD_HOST}" | cut -d@ -f2)
+                      for i in {1..5}; do
+                        if curl -s http://\$HOST/health; then
+                          echo "✅ App is healthy"
+                          exit 0
+                        fi
+                        echo "❌ Health check failed, retrying..."
+                        sleep 5
+                      done
+                      echo "App failed health check"
+                      exit 1
+                    """
+                }
+            }
         }
     }
 }
