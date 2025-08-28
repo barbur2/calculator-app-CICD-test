@@ -5,7 +5,7 @@ pipeline {
         AWS_DEFAULT_REGION = "us-east-1"
         AWS_ACCOUNT_ID     = "992382545251"
         ECR_REPO           = "bar-calculator-app"
-        PROD_HOST          = "ec2-user@<PROD-EC2-IP>"   // תעדכני את ה־IP
+        PROD_HOST          = "ec2-user@52.90.77.114"   
     }
 
     options {
