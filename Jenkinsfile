@@ -2,9 +2,9 @@ pipeline {
     agent any
 
     environment {
-        AWS_DEFAULT_REGION = "us-east-1" 
-        AWS_ACCOUNT_ID = "992382545251" 
-        ECR_REPO = "calculator-app"      
+        AWS_DEFAULT_REGION = "us-east-1"              
+        AWS_ACCOUNT_ID    = "992382545251"            
+        ECR_REPO          = "bar-calculator-app"      
     }
 
     stages {
