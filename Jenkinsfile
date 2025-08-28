@@ -24,15 +24,14 @@ pipeline {
         stage('Build Image') {
             steps {
                 script {
-                    // 🔖 בחירת טאג בהתאם ל־PR/Branch/Main
+                    def IMAGE_TAG
                     if (env.CHANGE_ID) {
                         IMAGE_TAG = "pr-${env.CHANGE_ID}-${env.BUILD_NUMBER}"
-                    } else if (env.BRANCH_NAME == "main") {
+                    } else if (env.BRANCH_NAME == 'main') {
                         IMAGE_TAG = "latest"
                     } else {
                         IMAGE_TAG = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
                     }
-
                     IMAGE_URI = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}"
 
                     sh """
@@ -53,8 +52,8 @@ pipeline {
                 }
             }
             steps {
-                // מריץ pytest מהקונטיינר
-                sh "docker run --rm ${IMAGE_URI} pytest || (echo '⚠️ Tests failed' && exit 1)"
+                // כאן התיקון: מריצים עם PYTHONPATH=/app
+                sh "docker run --rm -e PYTHONPATH=/app ${IMAGE_URI} pytest"
             }
         }
 
@@ -95,14 +94,14 @@ pipeline {
                 script {
                     sh """
                       for i in {1..5}; do
-                        if curl -s http://52.90.77.114/health; then
-                          echo "✅ App is healthy"
+                        if curl -s http://${PROD_HOST#*@}/health; then
+                          echo "App is healthy"
                           exit 0
                         fi
                         echo "Health check failed, retrying..."
                         sleep 5
                       done
-                      echo "❌ App failed health check"
+                      echo "App failed health check"
                       exit 1
                     """
                 }
