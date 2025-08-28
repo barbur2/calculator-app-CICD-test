@@ -24,7 +24,7 @@ pipeline {
         stage('Build Image') {
             steps {
                 script {
-                    def IMAGE_TAG
+                    // קובעים תגית לפי flow (PR או main)
                     if (env.CHANGE_ID) {
                         IMAGE_TAG = "pr-${env.CHANGE_ID}-${env.BUILD_NUMBER}"
                     } else if (env.BRANCH_NAME == 'main') {
@@ -32,13 +32,14 @@ pipeline {
                     } else {
                         IMAGE_TAG = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
                     }
-                    env.IMAGE_URI = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}"
+
+                    IMAGE_URI = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}"
 
                     sh """
                       aws ecr get-login-password --region ${AWS_DEFAULT_REGION} \
                         | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com
 
-                      docker build -t ${env.IMAGE_URI} .
+                      docker build -t ${IMAGE_URI} .
                     """
                 }
             }
@@ -52,9 +53,8 @@ pipeline {
                 }
             }
             steps {
-                script {
-                    sh "docker run --rm ${env.IMAGE_URI} pytest || (echo '⚠️ Tests failed' && exit 1)"
-                }
+                // הפתרון שלנו: מוסיפים PYTHONPATH=/app
+                sh "docker run --rm -e PYTHONPATH=/app ${IMAGE_URI} pytest"
             }
         }
 
@@ -66,7 +66,7 @@ pipeline {
                 }
             }
             steps {
-                sh "docker push ${env.IMAGE_URI}"
+                sh "docker push ${IMAGE_URI}"
             }
         }
 
@@ -79,9 +79,9 @@ pipeline {
                     sh """
                       ssh -o StrictHostKeyChecking=no ${PROD_HOST} \\
                         "aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com && \\
-                         docker pull ${env.IMAGE_URI} && \\
+                         docker pull ${IMAGE_URI} && \\
                          docker rm -f calculator || true && \\
-                         docker run -d --name calculator -p 80:5000 ${env.IMAGE_URI}"
+                         docker run -d --name calculator -p 80:5000 ${IMAGE_URI}"
                     """
                 }
             }
@@ -93,9 +93,9 @@ pipeline {
             }
             steps {
                 script {
-                    sh '''
+                    sh """
                       for i in {1..5}; do
-                        if curl -s http://${PROD_HOST#*@}/health; then
+                        if curl -s http://52.90.77.114/health; then
                           echo "✅ App is healthy"
                           exit 0
                         fi
@@ -104,7 +104,7 @@ pipeline {
                       done
                       echo "❌ App failed health check"
                       exit 1
-                    '''
+                    """
                 }
             }
         }
