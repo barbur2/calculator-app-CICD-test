@@ -80,21 +80,22 @@ pipeline {
         }
 
         stage('Deploy to Prod') {
-            when {
-                branch 'main'
-            }
-            steps {
-                script {
-                    sh """
-                      ssh -o StrictHostKeyChecking=no ${PROD_HOST} \\
-                        "docker login -u AWS -p \$(aws ecr get-login-password --region ${AWS_DEFAULT_REGION}) ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com && \\
-                         docker pull ${IMAGE_URI} && \\
-                         docker rm -f calculator || true && \\
-                         docker run -d --name calculator -p 80:5000 ${IMAGE_URI}"
-                    """
-                }
-            }
+    when {
+        branch 'main'
+    }
+    steps {
+        sshagent(['prod-ec2-ssh']) {
+            sh """
+              ssh -o StrictHostKeyChecking=no ec2-user@52.90.77.114 \\
+                "aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com && \\
+                 docker pull ${IMAGE_URI} && \\
+                 docker rm -f calculator || true && \\
+                 docker run -d --name calculator -p 80:5000 ${IMAGE_URI}"
+            """
         }
+    }
+}
+
 
         stage('Health Check') {
             when {
