@@ -24,16 +24,21 @@ pipeline {
         stage('Build Image') {
             steps {
                 script {
-                    sh 'pwd'
-                    sh 'ls -la'
-                    sh 'cat Dockerfile || echo "❌ No Dockerfile found!"'
+                    // 🔖 בחירת טאג בהתאם ל־PR/Branch/Main
+                    if (env.CHANGE_ID) {
+                        IMAGE_TAG = "pr-${env.CHANGE_ID}-${env.BUILD_NUMBER}"
+                    } else if (env.BRANCH_NAME == "main") {
+                        IMAGE_TAG = "latest"
+                    } else {
+                        IMAGE_TAG = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
+                    }
 
-                    def IMAGE_TAG = "latest"
-                    def IMAGE_URI = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}"
+                    IMAGE_URI = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}"
 
                     sh """
-                      aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | \
-                      docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com
+                      aws ecr get-login-password --region ${AWS_DEFAULT_REGION} \
+                        | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com
+
                       docker build -t ${IMAGE_URI} .
                     """
                 }
@@ -41,20 +46,27 @@ pipeline {
         }
 
         stage('Run Tests') {
+            agent {
+                docker {
+                    image 'jenkins-docker-aws'
+                    args '-v /var/run/docker.sock:/var/run/docker.sock'
+                }
+            }
             steps {
-                sh "docker run --rm ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO}:latest pytest || echo '⚠️ Tests failed'"
+                // מריץ pytest מהקונטיינר
+                sh "docker run --rm ${IMAGE_URI} pytest || (echo '⚠️ Tests failed' && exit 1)"
             }
         }
 
         stage('Push to ECR') {
             when {
                 anyOf {
-                    expression { env.CHANGE_ID != null } // PR builds
-                    branch 'main'
+                    expression { env.CHANGE_ID != null }  // PR builds
+                    branch 'main'                        // main branch
                 }
             }
             steps {
-                sh "docker push ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO}:latest"
+                sh "docker push ${IMAGE_URI}"
             }
         }
 
@@ -67,9 +79,9 @@ pipeline {
                     sh """
                       ssh -o StrictHostKeyChecking=no ${PROD_HOST} \\
                         "aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com && \\
-                         docker pull ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO}:latest && \\
+                         docker pull ${IMAGE_URI} && \\
                          docker rm -f calculator || true && \\
-                         docker run -d --name calculator -p 80:5000 ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO}:latest"
+                         docker run -d --name calculator -p 80:5000 ${IMAGE_URI}"
                     """
                 }
             }
@@ -82,16 +94,15 @@ pipeline {
             steps {
                 script {
                     sh """
-                      HOST=\$(echo "${PROD_HOST}" | cut -d@ -f2)
                       for i in {1..5}; do
-                        if curl -s http://\$HOST/health; then
+                        if curl -s http://52.90.77.114/health; then
                           echo "✅ App is healthy"
                           exit 0
                         fi
-                        echo "❌ Health check failed, retrying..."
+                        echo "Health check failed, retrying..."
                         sleep 5
                       done
-                      echo "App failed health check"
+                      echo "❌ App failed health check"
                       exit 1
                     """
                 }
